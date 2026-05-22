@@ -491,15 +491,6 @@
 
     // ضع بيانات مشروع Firebase الخاص بك هنا من Firebase Console > Project settings > Web app.
     // بعد وضع البيانات ورفع الملف على GitHub Pages سيتم حفظ البيانات عند الجميع عبر Firestore و Storage.
-    const firebaseConfig = {
-      apiKey: "AIzaSyDYLf49G6KdJtvIjVgGTuvCWq6c2i8O4aU",
-      authDomain: "sahm-c3c32.firebaseapp.com",
-      projectId: "sahm-c3c32",
-      storageBucket: "sahm-c3c32.firebasestorage.app",
-      messagingSenderId: "631968867211",
-      appId: "1:631968867211:web:13cb21cd179dc04cd5458e",
-      measurementId: "G-PVBPYJN6LZ"
-    };
 
     const FIREBASE_APP_DATA_ID = "manasek-mashaer-main";
     let firebaseApp = null;
