@@ -378,6 +378,42 @@
     .print-area { background: white; color: #111827; padding: 20px; border-radius: 18px; }
     .print-area .plate { border-color: #111827; }
     .empty { text-align: center; color: var(--muted); padding: 26px; border: 1px dashed var(--line); border-radius: 18px; }
+    .boot-progress {
+      width: 100%;
+      height: 12px;
+      border-radius: 999px;
+      overflow: hidden;
+      background: rgba(255,255,255,.13);
+      border: 1px solid rgba(255,255,255,.16);
+      margin-top: 18px;
+    }
+    .boot-progress span {
+      display: block;
+      width: 42%;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, var(--gold), var(--gold2), #ffffff, var(--gold));
+      animation: bootMove 1.15s ease-in-out infinite;
+    }
+    @keyframes bootMove {
+      0% { transform: translateX(135%); }
+      100% { transform: translateX(-245%); }
+    }
+    .cloud-status {
+      position: fixed;
+      bottom: 22px;
+      right: 22px;
+      z-index: 40;
+      max-width: 360px;
+      padding: 10px 13px;
+      border-radius: 16px;
+      border: 1px solid rgba(224,179,95,.28);
+      background: rgba(10,20,17,.88);
+      color: #f8faf9;
+      font-size: 12px;
+      line-height: 1.7;
+      box-shadow: var(--shadow);
+    }
     .toast {
       position: fixed;
       bottom: 22px;
@@ -456,13 +492,13 @@
     // ضع بيانات مشروع Firebase الخاص بك هنا من Firebase Console > Project settings > Web app.
     // بعد وضع البيانات ورفع الملف على GitHub Pages سيتم حفظ البيانات عند الجميع عبر Firestore و Storage.
     const firebaseConfig = {
-      apiKey: "AIzaSyCYOUfQ76LAdDApwnaOSNLhtNGNi_HrLa8",
-      authDomain: "plotr-784f6.firebaseapp.com",
-      projectId: "plotr-784f6",
-      storageBucket: "plotr-784f6.firebasestorage.app",
-      messagingSenderId: "533796327446",
-      appId: "1:533796327446:web:601ad626f583014507e537",
-      measurementId: "G-1D2K2CFCG5"
+      apiKey: "AIzaSyDYLf49G6KdJtvIjVgGTuvCWq6c2i8O4aU",
+      authDomain: "sahm-c3c32.firebaseapp.com",
+      projectId: "sahm-c3c32",
+      storageBucket: "sahm-c3c32.firebasestorage.app",
+      messagingSenderId: "631968867211",
+      appId: "1:631968867211:web:13cb21cd179dc04cd5458e",
+      measurementId: "G-PVBPYJN6LZ"
     };
 
     const FIREBASE_APP_DATA_ID = "manasek-mashaer-main";
@@ -609,6 +645,7 @@
         useFetchStreams: false
       });
       firebaseStorage = getStorage(firebaseApp);
+      firebaseReady = true;
     }
 
     function withTimeout(promise, ms, message) {
@@ -617,6 +654,56 @@
         timer = setTimeout(() => reject(new Error(message)), ms);
       });
       return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+    }
+
+    function readLocalFallbackState() {
+      try {
+        const saved = JSON.parse(localStorage.getItem(LOCAL_FALLBACK_STATE_KEY) || "null");
+        if (saved && Array.isArray(saved.users) && Array.isArray(saved.vehicles) && Array.isArray(saved.records)) return saved;
+      } catch (err) {
+        console.warn("Local fallback state read error:", err);
+      }
+      return defaultState();
+    }
+
+    function writeLocalFallbackState(targetState = state) {
+      try {
+        localStorage.setItem(LOCAL_FALLBACK_STATE_KEY, JSON.stringify(cleanForFirestore(targetState)));
+      } catch (err) {
+        console.warn("Local fallback state save error:", err);
+        toast("تعذر الحفظ المحلي. قد تكون مساحة المتصفح ممتلئة بسبب الصور.");
+      }
+    }
+
+    function readLocalFallbackPhotos() {
+      try {
+        const saved = JSON.parse(localStorage.getItem(LOCAL_FALLBACK_PHOTOS_KEY) || "[]");
+        return Array.isArray(saved) ? saved : [];
+      } catch (err) {
+        console.warn("Local fallback photos read error:", err);
+        return [];
+      }
+    }
+
+    function writeLocalFallbackPhotos(photos) {
+      try {
+        localStorage.setItem(LOCAL_FALLBACK_PHOTOS_KEY, JSON.stringify(photos || []));
+      } catch (err) {
+        console.warn("Local fallback photos save error:", err);
+        toast("تعذر حفظ الصور محليًا. قلل حجم الصور أو فعّل Firebase Storage.");
+      }
+    }
+
+    function showCloudStatus() {
+      const old = document.querySelector(".cloud-status");
+      if (old) old.remove();
+      const div = document.createElement("div");
+      div.className = "cloud-status";
+      div.innerHTML = isLocalFallbackMode
+        ? "وضع تجربة محلي: الموقع يعمل الآن على نفس المتصفح فقط. عند تشغيله من GitHub Pages مع Firestore سيحفظ عند الجميع."
+        : "متصل بـ Firebase: البيانات محفوظة على السحابة.";
+      document.body.appendChild(div);
+      setTimeout(() => div.remove(), 6500);
     }
 
     function explainFirebaseError(err) {
@@ -795,7 +882,10 @@
     }
 
     async function persistState(targetState = state) {
-      if (!firestoreDb) return;
+      if (isLocalFallbackMode || !firestoreDb) {
+        writeLocalFallbackState(targetState);
+        return;
+      }
       const normalized = normalizeGivenState(cleanForFirestore(targetState));
       const corePayload = cleanForFirestore({
         counters: normalized.counters || { delivery: 0, receiving: 0 },
@@ -818,9 +908,13 @@
     }
 
     function saveState() {
+      if (isLocalFallbackMode || !firestoreDb) {
+        writeLocalFallbackState(state);
+        return;
+      }
       persistState(state).catch(err => {
         console.error("Firebase save error:", err);
-        toast("تعذر حفظ البيانات في Firebase. تأكد من الاتصال وقواعد Firestore.");
+        toast("تعذر حفظ البيانات في Firebase. تم إبقاء البيانات في الذاكرة مؤقتًا.");
       });
     }
 
@@ -995,7 +1089,22 @@
 
     async function addPhotos(recordId, photos) {
       if (!photos.length) return;
-      if (!firebaseStorage || !firestoreDb) throw new Error("Firebase Storage غير جاهز.");
+      if (isLocalFallbackMode || !firebaseStorage || !firestoreDb) {
+        const saved = readLocalFallbackPhotos();
+        photos.forEach(photo => saved.push({
+          id: photo.id || uid(),
+          recordId,
+          name: photo.name || "photo.png",
+          type: photo.type || "image/png",
+          size: photo.size || 0,
+          data: photo.data || "",
+          url: photo.data || "",
+          addedAt: photo.addedAt || nowIso(),
+          addedBy: currentUser?.id || ""
+        }));
+        writeLocalFallbackPhotos(saved);
+        return;
+      }
       for (const photo of photos) {
         const photoId = photo.id || uid();
         const safeName = String(photo.name || "photo.png").replace(/[^a-zA-Z0-9._-]/g, "_");
@@ -1020,7 +1129,12 @@
     }
 
     async function getPhotos(recordId) {
-      if (!firestoreDb) return [];
+      if (isLocalFallbackMode || !firestoreDb) {
+        return readLocalFallbackPhotos()
+          .filter(p => p.recordId === recordId)
+          .map(p => ({ ...p, data: p.url || p.data || "" }))
+          .sort((a, b) => new Date(a.addedAt || 0) - new Date(b.addedAt || 0));
+      }
       const q = query(photosCollectionRef(), where("recordId", "==", recordId));
       const snap = await getDocs(q);
       return snap.docs.map(d => {
@@ -1030,7 +1144,10 @@
     }
 
     async function deletePhoto(photoId) {
-      if (!firestoreDb) return;
+      if (isLocalFallbackMode || !firestoreDb) {
+        writeLocalFallbackPhotos(readLocalFallbackPhotos().filter(p => p.id !== photoId));
+        return;
+      }
       const snap = await getDocs(query(photosCollectionRef(), where("id", "==", photoId)));
       for (const d of snap.docs) {
         const p = d.data();
@@ -1042,6 +1159,10 @@
     }
 
     async function deletePhotosByRecord(recordId) {
+      if (isLocalFallbackMode || !firestoreDb) {
+        writeLocalFallbackPhotos(readLocalFallbackPhotos().filter(p => p.recordId !== recordId));
+        return;
+      }
       const photos = await getPhotos(recordId);
       for (const p of photos) {
         if (p.storagePath && firebaseStorage) {
@@ -2688,13 +2809,15 @@
       renderApp();
     }
 
-    function renderBoot(message = "جاري الاتصال بقاعدة Firebase...") {
+    function renderBoot(message = "جاري الدخول للموقع...") {
       app.innerHTML = `
         <main class="login-page">
-          <section class="login-card" style="justify-self:center">
+          <section class="login-card" style="justify-self:center;max-width:560px;text-align:center">
+            <img class="hero-logo" src="${LOGO_SRC}" alt="مناسك المشاعر" style="width:120px;height:120px;margin-bottom:12px" />
             <h2>مناسك المشاعر</h2>
             <p>${escapeHtml(message)}</p>
-            <div class="hint">تم وضع بيانات Firebase. إذا طال الاتصال أكثر من 15 ثانية، فعّل Firestore Database من لوحة Firebase.</div>
+            <div class="boot-progress"><span></span></div>
+            <div class="hint" style="margin-top:14px">يتم تجهيز النظام، الرجاء الانتظار...</div>
           </section>
         </main>`;
     }
@@ -2704,35 +2827,52 @@
       app.innerHTML = `
         <main class="login-page">
           <section class="login-card" style="justify-self:center;max-width:860px">
-            <h2>تعذر الاتصال بـ Firebase</h2>
-            <p>البيانات موجودة داخل الكود، لكن الاتصال بقاعدة Firestore لم يكتمل.</p>
+            <h2>تعذر الاتصال بالسحابة</h2>
+            <p>الموقع يعمل الآن، لكن الاتصال بـ Firebase لم يكتمل.</p>
             <div class="error" style="display:block">${escapeHtml(friendly)}</div>
             <div class="hint" style="margin-top:14px;line-height:2;text-align:right">
-              الحل السريع:<br>
-              1) من Firebase Console افتح <b>Build / Databases & Storage / Firestore Database</b> واضغط <b>Create database</b>.<br>
-              2) اختر <b>Start in test mode</b> للتجربة فقط.<br>
-              3) فعّل <b>Storage</b> لحفظ الصور.<br>
-              4) شغّل الموقع من GitHub Pages أو Live Server، ولا تفتحه من مسار file:// عند التجربة النهائية.
+              للتجربة من VS Code شغله عبر <b>Live Server</b> أو ارفعه على <b>GitHub Pages</b>، وتأكد من تفعيل Firestore Database و Storage من Firebase Console.
             </div>
             <div class="toolbar" style="margin-top:16px">
               <button class="btn gold" onclick="location.reload()">إعادة المحاولة</button>
+              <button class="btn gray" onclick="startLocalFallbackFromError()">الدخول بوضع تجربة محلي</button>
             </div>
           </section>
         </main>`;
     }
 
+    window.startLocalFallbackFromError = function() {
+      isLocalFallbackMode = true;
+      firestoreDb = null;
+      firebaseStorage = null;
+      state = readLocalFallbackState();
+      normalizeState();
+      writeLocalFallbackState(state);
+      render();
+      setTimeout(showCloudStatus, 300);
+    };
+
     async function boot() {
-      renderBoot();
+      renderBoot("جاري الدخول للموقع...");
       try {
         setupFirebase();
         state = await loadState();
         normalizeState();
-        await withTimeout(persistState(state), 15000, "تعذر حفظ بيانات النظام في Firestore خلال الوقت المحدد.");
+        await withTimeout(persistState(state), 12000, "تعذر حفظ بيانات النظام في Firestore خلال الوقت المحدد.");
         startRealtimeSync();
+        isLocalFallbackMode = false;
         render();
+        setTimeout(showCloudStatus, 300);
       } catch (err) {
         console.error(err);
-        renderFirebaseConfigError(err);
+        isLocalFallbackMode = true;
+        firestoreDb = null;
+        firebaseStorage = null;
+        state = readLocalFallbackState();
+        normalizeState();
+        writeLocalFallbackState(state);
+        render();
+        setTimeout(showCloudStatus, 300);
       }
     }
 
